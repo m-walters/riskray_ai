@@ -29,4 +29,6 @@ SEED = int(os.environ.get("SEED", 8675309))
 numpy.random.seed(SEED)
 
 # If running as a container, we don't want to wait for inputs
+AWS_KEY_ID = os.environ.get("RR_AWS_KEY_ID")
+AWS_SECRET_ACCESS_KEY = os.environ.get("RR_AWS_ACCESS_KEY")
 
