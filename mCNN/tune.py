@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, TypedDict
 import numpy as np
 import ray
 import yaml
-from keras import Model, optimizers, Sequential
+from keras import Model, optimizers, Sequential, regularizers
 from keras.layers import (
     BatchNormalization, Concatenate, Conv2D, Dense, Dropout,
     Flatten, Input, LeakyReLU, MaxPooling2D
@@ -58,13 +58,14 @@ def risk_ray_mixed_data(config, trainer):
     Considerations: We may want to do a second CNN after a modified
     """
 
-    # Image network
+    # IMAGE NETWORK
     img_input = Input((trainer.input_shape[0], trainer.input_shape[1], trainer.n_channel))
     img_net = Conv2D(
         config['filters_0'],  # Output filters
         config['kernel_0'],  # Some odd number
         padding=config['padding'],
-        strides=config['strides']
+        strides=config['strides'],
+        kernel_regularizer=regularizers.l2(0.01),
     )(img_input)
     img_net = LeakyReLU(alpha=0.2)(img_net)
     # img_net = Dropout(config['dropout'])(img_net)
@@ -73,20 +74,24 @@ def risk_ray_mixed_data(config, trainer):
         config['filters_1'],
         config['kernel_1'],
         padding=config['padding'],
-        strides=config['strides']
+        strides=config['strides'],
+        kernel_regularizer=regularizers.l2(0.01),
     )(img_net)
     img_net = LeakyReLU(alpha=0.2)(img_net)
     img_net = Flatten()(img_net)
-    img_net = Dense(config['dense_0'])(img_net)
+    img_net = Dense(
+        config['dense_0'],
+        kernel_regularizer=regularizers.l2(0.01),
+    )(img_net)
     img_net = LeakyReLU(alpha=0.2)(img_net)
 
-    # Now our parameter network
+    # MISC ATTRIBUTE NETWORK
     param_input = Input((trainer.n_meta_attrs,))
     # Let's give it tanh for some -1 values
     param_net = Dense(16, activation='tanh')(param_input)
 
+    # MERGED NETWORK
     merged = Concatenate()([img_net, param_net])
-
     merged = Dense(16, activation='relu')(merged)
     # merged = Dense(8, activation='relu')(merged)
     # merged = BatchNormalization()(merged)
@@ -106,7 +111,8 @@ def risk_ray_sequential(config, trainer):
                 config['kernel_0'],  # Some odd number
                 input_shape=(trainer.input_shape[0], trainer.input_shape[1], trainer.n_channel),
                 padding=config['padding'],
-                strides=config['strides']
+                strides=config['strides'],
+                kernel_regularizer=regularizers.l2(0.01),
             ),
             Dropout(config['dropout']),
             LeakyReLU(alpha=0.2),
@@ -118,12 +124,14 @@ def risk_ray_sequential(config, trainer):
                 config['filters_1'],
                 config['kernel_1'],
                 padding=config['padding'],
-                strides=config['strides']
+                strides=config['strides'],
+                kernel_regularizer=regularizers.l2(0.01),
             ),
             Flatten(),
             Dense(
                 config['dense_0'],
-                activation="relu"
+                activation="relu",
+                kernel_regularizer=regularizers.l2(0.01),
             ),
             BatchNormalization(),
             Dense(1, activation="sigmoid")

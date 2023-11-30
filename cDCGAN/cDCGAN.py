@@ -1,25 +1,21 @@
 import os
 import shutil
-from typing import Dict, List, Optional, TypedDict
+from typing import TypedDict
 
 import keras
-from keras import Model, Sequential, optimizers, layers
-from keras.layers import (
-    Activation, LayerNormalization, Concatenate, Conv2D, Dense, Dropout, Flatten, Input,
-    MaxPooling2D, InputLayer, LeakyReLU, GlobalMaxPooling2D, Reshape, Conv2DTranspose
-)
 import numpy as np
 import pandas as pd
-from ray import train
-from sklearn.model_selection import train_test_split
-from sklearn.preprocessing import MinMaxScaler
 import tensorflow as tf
+
+from keras import regularizers, Sequential
+from keras.layers import (Conv2D, Conv2DTranspose, Dense, Flatten, LayerNormalization, LeakyReLU, Reshape)
+from ray import train
+from sklearn.preprocessing import MinMaxScaler
 
 # Have to create this as a packaged pyproject to use "riskray.ai.dicom..."
 from ..dicom.dataframes import TrainingDataFrame
-from ..dicom.dataset_tools import center_crop_df, pad_df, downscale, resize, META_DATA_KEYS
-from ..dicom.image_plotter import plot_grid_df
-from ..settings import STORE_PATH, KERAS_SEQUENTIAL, SEED
+from ..dicom.dataset_tools import center_crop_df, downscale, META_DATA_KEYS, pad_df
+from ..settings import KERAS_SEQUENTIAL, SEED, STORE_PATH
 
 
 def load_keras_model(path):
@@ -58,10 +54,14 @@ def risk_ray_gan_discriminator(config: DiscriminatorConfig, trainer: "GANTrainer
         [
             Conv2D(
                 config['filters_0'], config['kernel_0'], strides=2, padding='same',
-                input_shape=(trainer.input_shape[0], trainer.input_shape[1], trainer.n_channel)
+                input_shape=(trainer.input_shape[0], trainer.input_shape[1], trainer.n_channel),
+                kernel_regularizer=regularizers.l2(0.01),
             ),
             LeakyReLU(alpha=0.2),
-            Conv2D(config['filters_1'], config['kernel_1'], strides=2, padding='same'),
+            Conv2D(
+                config['filters_1'], config['kernel_1'], strides=2, padding='same',
+                kernel_regularizer=regularizers.l2(0.01),
+            ),
             LeakyReLU(alpha=0.2),
             Flatten(),
             Dense(1, activation="sigmoid"),
@@ -113,6 +113,7 @@ class cDCGAN(keras.Model):
     """
     Controlled Deep-Convolutional Generative Neural Net
     """
+
     def __init__(self, discriminator, generator, latent_dim):
         super().__init__()
         self.discriminator = discriminator
@@ -154,7 +155,7 @@ class cDCGAN(keras.Model):
             real_labels = tf.zeros((batch_size, 1))
             # Add random noise to the labels - important trick!
             real_labels = 0.05 * tf.random.uniform(tf.shape(real_labels))
-            
+
             fake_output = self.discriminator(generated_images, training=True)
             fake_labels = tf.ones((batch_size, 1))
             fake_labels = 0.05 * tf.random.uniform(tf.shape(fake_labels))
@@ -182,7 +183,6 @@ class cDCGAN(keras.Model):
         }
         metrics["combined_loss"] = metrics['d_loss'] + metrics['g_loss']
         return metrics
-
 
     @tf.function
     def train_step(self, real_images):
@@ -242,6 +242,7 @@ class GANMonitor(keras.callbacks.Callback):
     """
     Callback to save GAN generated images
     """
+
     def __init__(self, run_name, real_image_batch, num_img=3, latent_dim=128):
         """
         run_name actually has format "experiment/run" already
@@ -316,7 +317,7 @@ class GANMonitor(keras.callbacks.Callback):
         train.report(metrics, checkpoint=ray_ckpt)
 
         # Save the keras model every 10 epochs
-        if epoch%10 == 0:
+        if epoch % 10 == 0:
             model_dir = f"{STORE_PATH}/experiments/{self.run_name}/models/checkpoint_{epoch:06d}"
             if not os.path.exists(model_dir):
                 os.makedirs(model_dir)
